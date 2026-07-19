@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Sika — Ghana VAT compliance</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* ============================================================
+     CONFIG for rates lives in the <script> (single source of truth).
+     This app is a runnable prototype: state is in memory. In the real
+     build, STATE.businesses becomes your database, and the pure
+     functions (computeVat / checkRegistration / periodTotals) port
+     straight into React.
+     ============================================================ */
+  :root{
+    --paper:#E7EAE7; --card:#F6F7F5; --panel:#111C16; --ink:#152219; --muted:#5F6F66; --line:#D4DAD5;
+    --emerald:#0B6E4F; --emerald-soft:#e7f1eb; --ochre:#B4832A; --clay:#9A6B3F; --base:#33463C;
+    --purchase:#3B5B7A; --warn:#A8392B; --warn-soft:#fbeeeb;
+    --shadow:0 1px 0 rgba(21,34,25,.04), 0 14px 40px -22px rgba(21,34,25,.4);
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0; background:var(--paper); color:var(--ink);
+    font-family:"Inter",system-ui,sans-serif; line-height:1.5;}
+  button{font-family:inherit}
+
+  /* ---------- app shell ---------- */
+  .app{display:grid; grid-template-columns:246px 1fr; min-height:100vh}
+  @media (max-width:800px){ .app{grid-template-columns:1fr} }
+
+  .side{background:var(--panel); color:#cdd6d0; padding:22px 18px; display:flex; flex-direction:column; gap:22px}
+  @media (max-width:800px){ .side{flex-direction:row; flex-wrap:wrap; align-items:center; gap:12px; padding:14px 16px} }
+  .brand{display:flex; align-items:center; gap:10px}
+  .brand .mark{width:30px;height:30px;border-radius:8px;background:var(--emerald);display:flex;align-items:center;justify-content:center;
+    font-family:"Fraunces",serif;font-weight:700;color:#fff;font-size:18px}
+  .brand b{font-family:"Fraunces",serif; font-size:19px; color:#fff; font-weight:600; letter-spacing:-.01em}
+  .brand small{display:block; font-family:"IBM Plex Mono",monospace; font-size:9.5px; letter-spacing:.14em;
+    text-transform:uppercase; color:#7c8a82; margin-top:1px}
+
+  .biz-switch{flex:1 1 200px}
+  .biz-switch label{font-family:"IBM Plex Mono",monospace; font-size:9.5px; letter-spacing:.14em;
+    text-transform:uppercase; color:#7c8a82; display:block; margin-bottom:6px}
+  .biz-switch select{width:100%; padding:10px 12px; border-radius:9px; border:1px solid #2a3a31;
+    background:#0b1510; color:#eaf0ec; font-family:"Inter",sans-serif; font-size:14px; font-weight:500}
+  .biz-switch select:focus{outline:2px solid var(--emerald); outline-offset:1px}
+  .addbiz{background:none;border:1px dashed #33453b;color:#9fb0a7;border-radius:8px;padding:8px;
+    cursor:pointer;font-size:12px;margin-top:8px;width:100%}
+  .addbiz:hover{border-color:var(--emerald);color:#cfe6da}
+
+  nav{display:flex; flex-direction:column; gap:3px}
+  @media (max-width:800px){ nav{flex-direction:row; flex:1 1 100%; overflow:auto} }
+  nav button{display:flex; align-items:center; gap:10px; width:100%; text-align:left; background:none; border:0;
+    color:#a7b5ac; padding:10px 12px; border-radius:9px; font-size:14px; cursor:pointer; transition:background .15s,color .15s}
+  nav button:hover{background:#1b2a22; color:#e6eee9}
+  nav button[aria-current=true]{background:var(--emerald); color:#fff; font-weight:500}
+  nav button .ico{width:16px;text-align:center;opacity:.9}
+  .side .foot{margin-top:auto; font-family:"IBM Plex Mono",monospace; font-size:10px; color:#6d7c74; line-height:1.5}
+  @media (max-width:800px){ .side .foot{display:none} }
+
+  /* ---------- main ---------- */
+  .main{padding:30px 34px 60px; max-width:1080px}
+  @media (max-width:800px){ .main{padding:22px 18px 50px} }
+  .pagehead{display:flex; justify-content:space-between; align-items:flex-end; gap:16px; margin-bottom:24px; flex-wrap:wrap}
+  .pagehead h1{font-family:"Fraunces",serif; font-weight:600; font-size:clamp(24px,4vw,34px); margin:0; letter-spacing:-.01em}
+  .pagehead .meta{font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--muted); text-align:right}
+  .pagehead .meta b{color:var(--ink)}
+  .reg-pill{display:inline-flex; align-items:center; gap:6px; font-family:"IBM Plex Mono",monospace; font-size:10.5px;
+    letter-spacing:.08em; text-transform:uppercase; font-weight:600; padding:5px 10px; border-radius:20px; margin-top:6px}
+  .reg-pill.must{background:var(--warn-soft); color:var(--warn)}
+  .reg-pill.ok{background:var(--emerald-soft); color:var(--emerald)}
+
+  .card{background:var(--card); border:1px solid var(--line); border-radius:14px; padding:22px; box-shadow:var(--shadow)}
+  .card h2{font-family:"IBM Plex Mono",monospace; font-size:11px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--muted); font-weight:600; margin:0 0 16px; display:flex; justify-content:space-between; align-items:center}
+  .card h2 .hint{letter-spacing:0;text-transform:none;font-weight:400;opacity:.85}
+
+  .tiles{display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-bottom:20px}
+  @media (max-width:640px){ .tiles{grid-template-columns:1fr} }
+  .tile{background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px; box-shadow:var(--shadow)}
+  .tile .lab{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);margin-bottom:10px}
+  .tile .num{font-family:"Fraunces",serif; font-size:30px; font-weight:600; font-variant-numeric:tabular-nums; letter-spacing:-.01em}
+  .tile.net .num{color:var(--warn)} .tile.net.refund .num{color:var(--emerald)}
+  .tile .sub{font-size:11.5px;color:var(--muted);margin-top:4px;font-family:"IBM Plex Mono",monospace}
+  .swatch{width:10px;height:10px;border-radius:3px;flex:none}
+
+  .cols{display:grid; grid-template-columns:1.15fr .85fr; gap:20px; align-items:start}
+  @media (max-width:820px){ .cols{grid-template-columns:1fr} }
+
+  label.fl{display:block; font-size:13px; font-weight:500; margin:0 0 6px}
+  .field{margin-bottom:15px}
+  .row2{display:grid; grid-template-columns:1fr 150px; gap:12px}
+  @media (max-width:440px){ .row2{grid-template-columns:1fr} }
+  .money{position:relative}
+  .money .cur{position:absolute; left:13px; top:50%; transform:translateY(-50%); font-family:"IBM Plex Mono",monospace; color:var(--muted); font-size:14px}
+  input[type=number],input[type=text],input[type=date]{width:100%; padding:11px 13px; font-size:15px;
+    font-family:"Inter",sans-serif; border:1px solid var(--line); border-radius:10px; background:#fff; color:var(--ink)}
+  input[type=number]{padding-left:40px; font-family:"IBM Plex Mono",monospace}
+  input[type=number]{-moz-appearance:textfield}
+  input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  input:focus{outline:2px solid var(--emerald); outline-offset:1px; border-color:transparent}
+
+  .seg{display:flex; border:1px solid var(--line); border-radius:10px; overflow:hidden; background:#fff}
+  .seg button{flex:1; padding:10px 6px; border:0; background:transparent; cursor:pointer; font-size:12.5px; font-weight:500; color:var(--muted); transition:background .15s,color .15s}
+  .seg button[aria-pressed=true]{background:var(--ink); color:#fff}
+  .seg.type button[data-v=sale][aria-pressed=true]{background:var(--emerald)}
+  .seg.type button[data-v=purchase][aria-pressed=true]{background:var(--purchase)}
+
+  .btn{width:100%; padding:12px; border:0; border-radius:10px; cursor:pointer; background:var(--ink); color:#fff; font-size:14px; font-weight:600; transition:transform .08s,background .15s}
+  .btn:hover{background:#0c1a13} .btn:active{transform:translateY(1px)}
+  .btn.sm{width:auto; padding:9px 16px; font-size:13px}
+  .btn.ghost{background:#fff;color:var(--ink);border:1px solid var(--line)} .btn.ghost:hover{background:#eef1ee}
+
+  /* preview stack */
+  .preview{margin-top:16px;display:flex;gap:16px;align-items:flex-end;padding-top:16px;border-top:1px dashed var(--line)}
+  .stack{width:44px;flex:none;height:110px;border-radius:8px;overflow:hidden;display:flex;flex-direction:column-reverse;
+    border:1px solid var(--line);background:repeating-linear-gradient(45deg,#fff,#fff 6px,#fbfbfa 6px,#fbfbfa 12px)}
+  .seg-bar{width:100%;transition:height .45s cubic-bezier(.22,1,.36,1);min-height:0}
+  .plegend{flex:1;font-size:12px}
+  .plegend .li{display:flex;align-items:center;gap:8px;padding:2px 0}
+  .plegend .li .v{margin-left:auto;font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums}
+  .plegend .li .rate{color:var(--muted);font-family:"IBM Plex Mono",monospace;font-size:10.5px}
+
+  /* ledger */
+  .ledger{list-style:none;margin:0;padding:0}
+  .empty{font-size:13px;color:var(--muted);text-align:center;padding:30px 10px;border:1px dashed var(--line);border-radius:10px;font-family:"IBM Plex Mono",monospace}
+  .txn{display:grid;grid-template-columns:auto 1fr auto auto;align-items:center;gap:12px;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;margin-bottom:8px;animation:slideIn .28s cubic-bezier(.22,1,.36,1)}
+  @keyframes slideIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+  .txn.removing{animation:slideOut .22s ease forwards}
+  @keyframes slideOut{to{opacity:0;transform:translateX(14px);height:0;margin:0;padding-top:0;padding-bottom:0}}
+  .badge{font-family:"IBM Plex Mono",monospace;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;padding:4px 7px;border-radius:5px;color:#fff}
+  .badge.sale{background:var(--emerald)} .badge.purchase{background:var(--purchase)}
+  .txn .desc{font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .txn .desc small{display:block;color:var(--muted);font-family:"IBM Plex Mono",monospace;font-size:10.5px}
+  .txn .amt{font-family:"IBM Plex Mono",monospace;font-size:14px;font-weight:500;text-align:right;font-variant-numeric:tabular-nums}
+  .txn .amt small{display:block;color:var(--muted);font-weight:400;font-size:10.5px}
+  .del{border:0;background:transparent;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;padding:4px 6px;border-radius:6px;transition:background .15s,color .15s}
+  .del:hover{background:var(--warn-soft);color:var(--warn)}
+
+  .check-out{margin-top:14px;padding:13px 15px;border-radius:10px;font-size:13px;line-height:1.45;border:1px solid var(--line);background:#fff}
+  .check-out.must{border-color:var(--warn);background:var(--warn-soft);color:#5f221a}
+  .check-out.ok{border-color:var(--emerald);background:var(--emerald-soft);color:#123f2e}
+  .check-out .tag{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-weight:600;display:block;margin-bottom:4px}
+
+  /* invoice */
+  .inv-grid{display:grid;grid-template-columns:.9fr 1.1fr;gap:20px;align-items:start}
+  @media (max-width:900px){ .inv-grid{grid-template-columns:1fr} }
+  .li-row{display:grid;grid-template-columns:1fr 64px 96px auto;gap:8px;margin-bottom:8px;align-items:center}
+  .li-row input{padding:9px 10px;font-size:13px}
+  .li-row .del{justify-self:center}
+  .invoice{background:#fff;border:1px solid var(--line);border-radius:14px;padding:30px;box-shadow:var(--shadow)}
+  .invoice .top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;gap:16px}
+  .invoice .top h3{font-family:"Fraunces",serif;font-size:22px;margin:0 0 3px}
+  .invoice .top .tin{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--muted)}
+  .invoice .top .no{text-align:right;font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--muted)}
+  .invoice .top .no b{display:block;font-size:22px;color:var(--ink);font-family:"Fraunces",serif}
+  .invoice .to{font-size:12.5px;color:var(--muted);margin-bottom:16px}
+  .invoice .to b{color:var(--ink)}
+  table.inv{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:14px}
+  table.inv th{text-align:left;font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600;padding:8px 6px;border-bottom:1px solid var(--line)}
+  table.inv td{padding:9px 6px;border-bottom:1px solid #eef1ee;font-variant-numeric:tabular-nums}
+  table.inv td.r,table.inv th.r{text-align:right}
+  .inv-tot{margin-left:auto;width:260px;font-size:13px}
+  .inv-tot .l{display:flex;justify-content:space-between;padding:6px 0;font-variant-numeric:tabular-nums}
+  .inv-tot .l.grand{border-top:2px solid var(--ink);margin-top:4px;padding-top:10px;font-weight:600;font-size:16px;font-family:"Fraunces",serif}
+  .inv-tot .l .rate{color:var(--muted);font-family:"IBM Plex Mono",monospace;font-size:10.5px}
+
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+  @media print{
+    .side,.pagehead .meta,nav,.inv-controls,.btn,.actions,.no-print{display:none!important}
+    .app{display:block} .main{padding:0;max-width:none}
+    .invoice{border:0;box-shadow:none;padding:0}
+    .inv-grid{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- SIDEBAR -->
+  <aside class="side">
+    <div class="brand">
+      <div class="mark">₵</div>
+      <div><b>Sika</b><small>VAT · Act 1151</small></div>
+    </div>
+    <div class="biz-switch">
+      <label>Business</label>
+      <select id="bizSelect" aria-label="Switch business"></select>
+      <button class="addbiz" id="addBizBtn">+ Add business</button>
+    </div>
+    <nav id="nav">
+      <button data-view="dashboard" aria-current="true"><span class="ico">◧</span> Dashboard</button>
+      <button data-view="transactions"><span class="ico">≣</span> Transactions</button>
+      <button data-view="invoice"><span class="ico">▤</span> Invoice</button>
+    </nav>
+    <div class="foot">Prototype · in-memory data<br>Not tax advice — verify with GRA</div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main" id="main"></main>
+</div>
+
+<script>
+  /* ================= CONFIG — the only place rates live ================= */
+  const CONFIG = {
+    asOf:"2026 (Act 1151)",
+    vat:{label:"VAT",rate:0.15}, nhil:{label:"NHIL",rate:0.025}, getfund:{label:"GETFund",rate:0.025},
+    covidLevy:0,                                   // abolished 1 Jan 2026
+    registration:{ goodsThreshold:750000, servicesMandatory:true }
+  };
+  const K = 1 + CONFIG.vat.rate + CONFIG.nhil.rate + CONFIG.getfund.rate; // 1.20
+
+  /* ================= PURE ENGINE — ports directly into React ================= */
+  function computeVat(amount, inclusive){
+    const base = inclusive ? amount/K : amount;
+    return { base, nhil:base*CONFIG.nhil.rate, getfund:base*CONFIG.getfund.rate,
+             vat:base*CONFIG.vat.rate, total:base*K, tax:base*(K-1) };
+  }
+  function checkRegistration(turnover, type){
+    if(type==="services" && CONFIG.registration.servicesMandatory)
+      return { must:true, msg:"Suppliers of services must register regardless of turnover under Act 1151." };
+    const t=CONFIG.registration.goodsThreshold;
+    return turnover>=t
+      ? { must:true, msg:"Turnover meets or exceeds the GH₵"+fmt0(t)+" goods threshold — registration is required." }
+      : { must:false, msg:"Below the GH₵"+fmt0(t)+" goods threshold — registration is voluntary." };
+  }
+  function periodTotals(biz){
+    let out=0, inp=0;
+    biz.transactions.forEach(t=>{ const v=computeVat(t.amount,t.inclusive).vat;
+      t.type==="sale" ? out+=v : inp+=v; });
+    return { out, inp, net:out-inp };
+  }
+
+  /* ================= STATE (your future database) ================= */
+  const STATE = {
+    activeId:1, view:"dashboard",
+    // form state for the transactions view
+    form:{ inclusive:false, type:"sale" },
+    invoice:{ customer:"", lines:[{desc:"",qty:1,unit:0}] },
+    businesses:[
+      { id:1, name:"Emmadin Farms & Trading", tin:"C0012345678", supplyType:"goods", turnover:820000,
+        transactions:[
+          {id:11,desc:"Maize supply — Kumasi depot",amount:48000,inclusive:false,type:"sale"},
+          {id:12,desc:"Feed & inputs",amount:15500,inclusive:false,type:"purchase"},
+          {id:13,desc:"Poultry sales",amount:22000,inclusive:false,type:"sale"},
+        ]},
+      { id:2, name:"Danana Y Ventures", tin:"C0087654321", supplyType:"services", turnover:180000,
+        transactions:[
+          {id:21,desc:"Consulting retainer",amount:12000,inclusive:false,type:"sale"},
+          {id:22,desc:"Software subscription",amount:2400,inclusive:true,type:"purchase"},
+        ]},
+    ]
+  };
+  let uid = 100;
+  const activeBiz = () => STATE.businesses.find(b=>b.id===STATE.activeId);
+
+  /* ================= format helpers ================= */
+  const fmt  = n => (n||0).toLocaleString("en-GH",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const fmt0 = n => (n||0).toLocaleString("en-GH",{maximumFractionDigits:0});
+  const pct  = r => (r*100).toFixed(r*100%1===0?0:1)+"%";
+  const esc  = s => String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const $ = id => document.getElementById(id);
+
+  /* ================= SIDEBAR ================= */
+  function renderSidebar(){
+    const sel = $("bizSelect");
+    sel.innerHTML = STATE.businesses.map(b=>'<option value="'+b.id+'"'+(b.id===STATE.activeId?" selected":"")+'>'+esc(b.name)+'</option>').join("");
+    document.querySelectorAll("#nav button").forEach(btn=>
+      btn.setAttribute("aria-current", btn.dataset.view===STATE.view ? "true":"false"));
+  }
+
+  /* ================= VIEWS ================= */
+  function render(){ renderSidebar(); $("main").innerHTML = viewHTML(); wireView(); }
+
+  function pageHead(title, extra){
+    const b=activeBiz(); const c=checkRegistration(b.turnover,b.supplyType);
+    return '<div class="pagehead"><div><h1>'+title+'</h1>'+
+      '<span class="reg-pill '+(c.must?"must":"ok")+'">'+(c.must?"VAT-registered / required":"Registration voluntary")+'</span></div>'+
+      '<div class="meta"><b>'+esc(b.name)+'</b><br>TIN '+esc(b.tin)+'<br>'+(extra||"")+'</div></div>';
+  }
+
+  function viewHTML(){
+    if(STATE.view==="dashboard") return dashboardHTML();
+    if(STATE.view==="transactions") return transactionsHTML();
+    if(STATE.view==="invoice") return invoiceHTML();
+  }
+
+  /* ---- dashboard ---- */
+  function dashboardHTML(){
+    const b=activeBiz(); const t=periodTotals(b); const c=checkRegistration(b.turnover,b.supplyType);
+    const recent=b.transactions.slice(-4).reverse();
+    return pageHead("Dashboard","Turnover GH₵ "+fmt0(b.turnover)+"/yr")+
+    '<div class="tiles">'+
+      tile("Output VAT","var(--emerald)",t.out,"on sales this period","")+
+      tile("Input VAT","var(--purchase)",t.inp,"reclaimable on purchases","")+
+      '<div class="tile net '+(t.net<0?"refund":"")+'"><div class="lab">Net VAT '+(t.net<0?"credit":"payable")+'</div>'+
+        '<div class="num">GH₵ '+fmt(Math.abs(t.net))+'</div><div class="sub">output − input</div></div>'+
+    '</div>'+
+    '<div class="cols"><section class="card"><h2>Recent activity <span class="hint">'+b.transactions.length+' total</span></h2>'+
+      '<ul class="ledger">'+(recent.length?recent.map(txnRow).join(""):'<div class="empty">No transactions yet.</div>')+'</ul>'+
+      '<button class="btn ghost sm" data-goto="transactions" style="margin-top:6px">View all transactions →</button></section>'+
+    '<section class="card"><h2>Registration status</h2>'+
+      '<div class="check-out '+(c.must?"must":"ok")+'"><span class="tag">'+(c.must?"Must register":"Not required")+'</span>'+c.msg+'</div>'+
+      '<p style="font-size:12.5px;color:var(--muted);margin:14px 0 0;line-height:1.5">Based on GH₵ '+fmt0(b.turnover)+' annual turnover in <b>'+b.supplyType+'</b>. Update turnover when adding a new business.</p></section></div>';
+  }
+  function tile(lab,color,val,sub){
+    return '<div class="tile"><div class="lab"><span class="swatch" style="background:'+color+'"></span>'+lab+'</div>'+
+      '<div class="num">GH₵ '+fmt(val)+'</div><div class="sub">'+sub+'</div></div>';
+  }
+  function txnRow(t){
+    const r=computeVat(t.amount,t.inclusive);
+    return '<li class="txn" data-id="'+t.id+'"><span class="badge '+t.type+'">'+(t.type==="sale"?"Sale":"Buy")+'</span>'+
+      '<span class="desc">'+esc(t.desc)+'<small>'+(t.inclusive?"VAT-inclusive":"VAT added")+' · base GH₵ '+fmt(r.base)+'</small></span>'+
+      '<span class="amt">GH₵ '+fmt(r.total)+'<small>VAT GH₵ '+fmt(r.vat)+'</small></span>'+
+      '<button class="del" data-del="'+t.id+'" aria-label="Remove">×</button></li>';
+  }
+
+  /* ---- transactions ---- */
+  function transactionsHTML(){
+    const b=activeBiz(); const f=STATE.form;
+    return pageHead("Transactions")+
+    '<div class="cols"><section class="card"><h2>Add a transaction <span class="hint">Enter to add</span></h2>'+
+      '<div class="field"><label class="fl" for="desc">Description</label><input id="desc" type="text" autocomplete="off" placeholder="e.g. Sale to Ridge Royal Hotel"></div>'+
+      '<div class="field row2"><div><label class="fl" for="amt">Amount</label><div class="money"><span class="cur">GH₵</span><input id="amt" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00"></div></div>'+
+        '<div><label class="fl">VAT</label><div class="seg" role="group"><button data-form="incl" data-val="false" aria-pressed="'+(!f.inclusive)+'">Add</button><button data-form="incl" data-val="true" aria-pressed="'+f.inclusive+'">Extract</button></div></div></div>'+
+      '<div class="field"><label class="fl">Type</label><div class="seg type" role="group"><button data-form="type" data-val="sale" aria-pressed="'+(f.type==="sale")+'">Sale — output VAT</button><button data-form="type" data-val="purchase" aria-pressed="'+(f.type==="purchase")+'">Purchase — input VAT</button></div></div>'+
+      previewHTML()+
+      '<button class="btn" id="addTxn" style="margin-top:14px">Add to return</button></section>'+
+    '<section class="card"><h2>This period <span class="hint" id="cnt">'+b.transactions.length+' entries</span></h2>'+
+      summaryHTML(b)+
+      '<div class="actions" style="display:flex;gap:10px;margin:14px 0 18px"><button class="btn ghost sm" id="csvBtn" style="flex:1">Export CSV</button><button class="btn ghost sm" id="printBtn" style="flex:1">Print</button></div>'+
+      '<ul class="ledger" id="ledger">'+(b.transactions.length?b.transactions.slice().reverse().map(txnRow).join(""):"")+'</ul>'+
+      '<div class="empty" id="empty" style="display:'+(b.transactions.length?"none":"block")+'">No transactions yet — add one on the left.</div>'+
+    '</section></div>';
+  }
+  function previewHTML(){
+    return '<div class="preview"><div class="stack" aria-hidden="true">'+
+      '<div class="seg-bar" id="bBase" style="background:var(--base)"></div><div class="seg-bar" id="bNhil" style="background:var(--ochre)"></div>'+
+      '<div class="seg-bar" id="bGet" style="background:var(--clay)"></div><div class="seg-bar" id="bVat" style="background:var(--emerald)"></div></div>'+
+      '<div class="plegend">'+
+      '<div class="li"><span class="swatch" style="background:var(--emerald)"></span>VAT <span class="rate">'+pct(CONFIG.vat.rate)+'</span><span class="v" id="pVat">—</span></div>'+
+      '<div class="li"><span class="swatch" style="background:var(--clay)"></span>GETFund <span class="rate">'+pct(CONFIG.getfund.rate)+'</span><span class="v" id="pGet">—</span></div>'+
+      '<div class="li"><span class="swatch" style="background:var(--ochre)"></span>NHIL <span class="rate">'+pct(CONFIG.nhil.rate)+'</span><span class="v" id="pNhil">—</span></div>'+
+      '<div class="li"><span class="swatch" style="background:var(--base)"></span>Base <span class="rate">pre-tax</span><span class="v" id="pBase">—</span></div></div></div>';
+  }
+  function summaryHTML(b){
+    const t=periodTotals(b);
+    return '<div style="display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px dashed var(--line);font-size:13.5px"><span><span class="swatch" style="background:var(--emerald);display:inline-block;margin-right:7px"></span>Output VAT</span><b style="font-family:IBM Plex Mono,monospace" id="sOut">GH₵ '+fmt(t.out)+'</b></div>'+
+      '<div style="display:flex;justify-content:space-between;padding:9px 0;font-size:13.5px"><span><span class="swatch" style="background:var(--purchase);display:inline-block;margin-right:7px"></span>Input VAT</span><b style="font-family:IBM Plex Mono,monospace" id="sInp">GH₵ '+fmt(t.inp)+'</b></div>'+
+      '<div id="netBox" style="margin-top:8px;padding:14px;border-radius:12px;text-align:center;border:1px solid '+(t.net<0?"var(--emerald)":"var(--warn)")+';background:#fff">'+
+        '<div style="font-family:IBM Plex Mono,monospace;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)" id="netTag">'+(t.net<0?"Net VAT credit":"Net VAT payable to GRA")+'</div>'+
+        '<div style="font-family:Fraunces,serif;font-size:30px;font-weight:600;color:'+(t.net<0?"var(--emerald)":"var(--warn)")+'" id="netBig">GH₵ '+fmt(Math.abs(t.net))+'</div></div>';
+  }
+
+  /* ---- invoice ---- */
+  function invoiceHTML(){
+    const b=activeBiz(); const iv=STATE.invoice;
+    const rows = iv.lines.map((l,i)=>
+      '<div class="li-row"><input data-inv="desc" data-i="'+i+'" type="text" placeholder="Item / service" value="'+esc(l.desc)+'">'+
+      '<input data-inv="qty" data-i="'+i+'" type="number" min="0" step="1" value="'+l.qty+'">'+
+      '<input data-inv="unit" data-i="'+i+'" type="number" min="0" step="0.01" value="'+l.unit+'">'+
+      '<button class="del" data-invdel="'+i+'" aria-label="Remove line">×</button></div>').join("");
+    return pageHead("Invoice")+
+    '<div class="inv-grid"><section class="card inv-controls"><h2>Build invoice</h2>'+
+      '<div class="field"><label class="fl" for="cust">Bill to</label><input id="cust" type="text" placeholder="Customer name" value="'+esc(iv.customer)+'"></div>'+
+      '<label class="fl">Line items <span style="color:var(--muted);font-weight:400">(qty × unit, VAT-exclusive)</span></label>'+
+      '<div class="li-row" style="color:var(--muted);font-size:10.5px;font-family:IBM Plex Mono,monospace;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px"><span>Description</span><span>Qty</span><span>Unit ₵</span><span></span></div>'+
+      rows+
+      '<button class="btn ghost sm" id="addLine" style="margin-top:6px">+ Add line</button>'+
+      '<button class="btn" id="printInv" style="margin-top:14px">Print / save invoice</button></section>'+
+    '<div>'+invoicePaper()+'</div></div>';
+  }
+  function invoicePaper(){
+    const b=activeBiz(); const iv=STATE.invoice;
+    let base=0; const rows=iv.lines.filter(l=>l.desc||l.unit).map(l=>{
+      const line=(parseFloat(l.qty)||0)*(parseFloat(l.unit)||0); base+=line;
+      return '<tr><td>'+esc(l.desc||"—")+'</td><td class="r">'+(l.qty||0)+'</td><td class="r">'+fmt(l.unit||0)+'</td><td class="r">'+fmt(line)+'</td></tr>';
+    }).join("");
+    const r=computeVat(base,false);
+    const no = "INV-"+String(activeBiz().id)+"-"+new Date().getFullYear();
+    return '<div class="invoice" id="invPaper"><div class="top"><div><h3>'+esc(b.name)+'</h3><div class="tin">TIN '+esc(b.tin)+' · VAT invoice</div></div>'+
+      '<div class="no">Invoice<b>'+no+'</b>'+new Date().toLocaleDateString("en-GH")+'</div></div>'+
+      '<div class="to">Bill to <b>'+(esc(iv.customer)||"—")+'</b></div>'+
+      '<table class="inv"><thead><tr><th>Description</th><th class="r">Qty</th><th class="r">Unit</th><th class="r">Amount</th></tr></thead>'+
+      '<tbody>'+(rows||'<tr><td colspan="4" style="color:var(--muted)">Add line items to build the invoice.</td></tr>')+'</tbody></table>'+
+      '<div class="inv-tot"><div class="l"><span>Subtotal (base)</span><span>GH₵ '+fmt(r.base)+'</span></div>'+
+      '<div class="l"><span>NHIL <span class="rate">'+pct(CONFIG.nhil.rate)+'</span></span><span>GH₵ '+fmt(r.nhil)+'</span></div>'+
+      '<div class="l"><span>GETFund <span class="rate">'+pct(CONFIG.getfund.rate)+'</span></span><span>GH₵ '+fmt(r.getfund)+'</span></div>'+
+      '<div class="l"><span>VAT <span class="rate">'+pct(CONFIG.vat.rate)+'</span></span><span>GH₵ '+fmt(r.vat)+'</span></div>'+
+      '<div class="l grand"><span>Total due</span><span>GH₵ '+fmt(r.total)+'</span></div></div></div>';
+  }
+
+  /* ================= WIRING (per view) ================= */
+  function wireView(){
+    // nav + goto + business switch handled by delegation (bound once, below)
+    if(STATE.view==="transactions") wireTransactions();
+    if(STATE.view==="invoice") wireInvoice();
+  }
+
+  function wireTransactions(){
+    const f=STATE.form;
+    // segmented controls
+    document.querySelectorAll('[data-form]').forEach(btn=>btn.addEventListener("click",()=>{
+      const key=btn.dataset.form; const val=btn.dataset.val;
+      f[key] = key==="incl" ? (val==="true") : val;
+      document.querySelectorAll('[data-form="'+key+'"]').forEach(o=>o.setAttribute("aria-pressed", o===btn));
+      updatePreview();
+    }));
+    $("amt").addEventListener("input", updatePreview);
+    ["desc","amt"].forEach(id=>$(id).addEventListener("keydown",e=>{ if(e.key==="Enter") addTxn(); }));
+    $("addTxn").addEventListener("click", addTxn);
+    $("csvBtn").addEventListener("click", exportCSV);
+    $("printBtn").addEventListener("click", ()=>window.print());
+    // remove buttons
+    $("ledger").addEventListener("click", e=>{
+      const del=e.target.closest("[data-del]"); if(!del) return;
+      const id=+del.dataset.del; const li=del.closest(".txn"); li.classList.add("removing");
+      setTimeout(()=>{ const b=activeBiz(); b.transactions=b.transactions.filter(t=>t.id!==id); render(); },200);
+    });
+    updatePreview();
+  }
+  function updatePreview(){
+    const a=parseFloat($("amt").value)||0; const r=computeVat(a,STATE.form.inclusive); const tot=r.total||1;
+    $("pBase").textContent=a?fmt(r.base):"—"; $("pNhil").textContent=a?fmt(r.nhil):"—";
+    $("pGet").textContent=a?fmt(r.getfund):"—"; $("pVat").textContent=a?fmt(r.vat):"—";
+    $("bBase").style.height=a?(r.base/tot*100)+"%":"0%"; $("bNhil").style.height=a?(r.nhil/tot*100)+"%":"0%";
+    $("bGet").style.height=a?(r.getfund/tot*100)+"%":"0%"; $("bVat").style.height=a?(r.vat/tot*100)+"%":"0%";
+  }
+  function addTxn(){
+    const amount=parseFloat($("amt").value)||0; if(amount<=0){ $("amt").focus(); return; }
+    const desc=$("desc").value.trim() || (STATE.form.type==="sale"?"Sale":"Purchase");
+    activeBiz().transactions.push({id:uid++,desc,amount,inclusive:STATE.form.inclusive,type:STATE.form.type});
+    render(); $("desc") && $("desc").focus();
+  }
+  function exportCSV(){
+    const b=activeBiz(); const rows=[["Business",b.name],["TIN",b.tin],[],["Description","Type","Amount","Treatment","Base","NHIL","GETFund","VAT","Total"]];
+    b.transactions.forEach(t=>{const r=computeVat(t.amount,t.inclusive);
+      rows.push([t.desc,t.type,t.amount,t.inclusive?"inclusive":"exclusive",r.base.toFixed(2),r.nhil.toFixed(2),r.getfund.toFixed(2),r.vat.toFixed(2),r.total.toFixed(2)]);});
+    const p=periodTotals(b); rows.push([],["Output VAT","","","","","","","",p.out.toFixed(2)],["Input VAT","","","","","","","",p.inp.toFixed(2)],["Net "+(p.net>=0?"payable":"credit"),"","","","","","","",Math.abs(p.net).toFixed(2)]);
+    const csv=rows.map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(",")).join("\n");
+    const url=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+    const a=document.createElement("a"); a.href=url; a.download=(b.name.replace(/\W+/g,"-").toLowerCase())+"-vat-return.csv"; a.click(); URL.revokeObjectURL(url);
+  }
+
+  function wireInvoice(){
+    $("cust").addEventListener("input",e=>{ STATE.invoice.customer=e.target.value; refreshPaper(); });
+    document.querySelectorAll("[data-inv]").forEach(inp=>inp.addEventListener("input",e=>{
+      const i=+e.target.dataset.i; const key=e.target.dataset.inv;
+      STATE.invoice.lines[i][key] = key==="desc" ? e.target.value : (parseFloat(e.target.value)||0);
+      refreshPaper();
+    }));
+    $("addLine").addEventListener("click",()=>{ STATE.invoice.lines.push({desc:"",qty:1,unit:0}); render(); });
+    document.querySelectorAll("[data-invdel]").forEach(btn=>btn.addEventListener("click",()=>{
+      const i=+btn.dataset.invdel; STATE.invoice.lines.splice(i,1);
+      if(!STATE.invoice.lines.length) STATE.invoice.lines.push({desc:"",qty:1,unit:0}); render();
+    }));
+    $("printInv").addEventListener("click",()=>window.print());
+  }
+  function refreshPaper(){ const holder=$("invPaper").parentElement; holder.innerHTML=invoicePaper(); }
+
+  /* ================= GLOBAL WIRING (bound once) ================= */
+  $("bizSelect").addEventListener("change",e=>{ STATE.activeId=+e.target.value; render(); });
+  $("nav").addEventListener("click",e=>{ const b=e.target.closest("[data-view]"); if(!b)return; STATE.view=b.dataset.view; render(); });
+  $("addBizBtn").addEventListener("click",()=>{
+    const name=prompt("Business name:"); if(!name) return;
+    const tin=prompt("TIN (optional):")||"—";
+    const type=confirm("Does it mainly supply GOODS?  (OK = goods, Cancel = services)")?"goods":"services";
+    const turnover=parseFloat(prompt("Estimated annual turnover (GH₵):"))||0;
+    const id=Math.max(...STATE.businesses.map(b=>b.id))+1;
+    STATE.businesses.push({id,name,tin,supplyType:type,turnover,transactions:[]});
+    STATE.activeId=id; STATE.view="dashboard"; render();
+  });
+  $("main").addEventListener("click",e=>{ const g=e.target.closest("[data-goto]"); if(g){ STATE.view=g.dataset.goto; render(); } });
+
+  /* ================= INIT ================= */
+  render();
+</script>
+</body>
+</html>
