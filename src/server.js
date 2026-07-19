@@ -8,16 +8,6 @@ const transactionRoutes = require('./routes/transactions');
 const invoiceRoutes = require('./routes/invoices');
 const { rates, asOf } = require('./config/rates');
 
-// Fail fast on misconfiguration rather than throwing confusing 500s at request time.
-if (!process.env.JWT_SECRET) {
-  console.error('FATAL: JWT_SECRET is not set. The API cannot sign or verify tokens without it.');
-  process.exit(1);
-}
-if (!process.env.DATABASE_URL) {
-  console.error('FATAL: DATABASE_URL is not set. The API cannot reach the database.');
-  process.exit(1);
-}
-
 const app = express();
 
 app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
@@ -41,7 +31,21 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-const port = process.env.PORT || 4000;
-app.listen(port, () => console.log(`Sika API listening on :${port}`));
-
+// Export the app so serverless hosts (Vercel) can wrap it as a handler.
 module.exports = app;
+
+// Only bind a port when run directly (local dev, or a long-running host like Render).
+// Under Vercel this file is imported, not executed, so we must NOT listen or exit here.
+if (require.main === module) {
+  // Fail fast on misconfiguration rather than throwing confusing 500s at request time.
+  if (!process.env.JWT_SECRET) {
+    console.error('FATAL: JWT_SECRET is not set. The API cannot sign or verify tokens without it.');
+    process.exit(1);
+  }
+  if (!process.env.DATABASE_URL) {
+    console.error('FATAL: DATABASE_URL is not set. The API cannot reach the database.');
+    process.exit(1);
+  }
+  const port = process.env.PORT || 4000;
+  app.listen(port, () => console.log(`Sika API listening on :${port}`));
+}
