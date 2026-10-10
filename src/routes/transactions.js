@@ -4,13 +4,14 @@ const { requireAuth, loadBusiness, requireWrite } = require('../middleware/auth'
 const { computeVat } = require('../lib/vat');
 
 const router = express.Router();
-router.use(requireAuth);
+// requireAuth is applied per route (not router.use) because this router is
+// mounted at "/" — a router-wide guard would turn every unknown URL into a 401.
 
 // Attach computed VAT to a stored row for the client.
 const withVat = (t) => ({ ...t, computed: computeVat(t.amount, t.vat_inclusive) });
 
 // GET /businesses/:businessId/transactions
-router.get('/businesses/:businessId/transactions', loadBusiness, async (req, res, next) => {
+router.get('/businesses/:businessId/transactions', requireAuth, loadBusiness, async (req, res, next) => {
   try {
     const { rows } = await db.query(
       `select id, description, amount, vat_inclusive, type, txn_date, created_at
@@ -23,7 +24,7 @@ router.get('/businesses/:businessId/transactions', loadBusiness, async (req, res
 });
 
 // POST /businesses/:businessId/transactions
-router.post('/businesses/:businessId/transactions', loadBusiness, requireWrite, async (req, res, next) => {
+router.post('/businesses/:businessId/transactions', requireAuth, loadBusiness, requireWrite, async (req, res, next) => {
   try {
     const { description, amount, vat_inclusive = false, type, txn_date } = req.body || {};
     if (!type || !['sale', 'purchase'].includes(type)) return res.status(400).json({ error: 'type must be sale or purchase' });
@@ -41,7 +42,7 @@ router.post('/businesses/:businessId/transactions', loadBusiness, requireWrite, 
 });
 
 // DELETE /transactions/:id  — membership re-checked via the row's business
-router.delete('/transactions/:id', async (req, res, next) => {
+router.delete('/transactions/:id', requireAuth, async (req, res, next) => {
   try {
     const { rows } = await db.query(
       `delete from transactions t

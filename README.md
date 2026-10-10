@@ -42,6 +42,8 @@ Health check: `GET /health` -> `{ "ok": true }`
 
 ## Deploy
 
+### Long-running host (Render, Railway, etc.)
+
 1. Provision a PostgreSQL database (Neon, Render, etc.).
 2. Set `DATABASE_URL` and `JWT_SECRET` in the host's environment.
 3. Install command: `npm install`
@@ -49,3 +51,16 @@ Health check: `GET /health` -> `{ "ok": true }`
 5. Run the migration once against the production DB: `npm run migrate`.
 
 `node_modules/` is git-ignored — the host installs dependencies from `package-lock.json`.
+
+### Vercel (serverless)
+
+`vercel.json` rewrites every request to `api/index.js`, which exports the Express app as a
+serverless handler — no `npm start` or port is involved.
+
+1. Import the repo in Vercel (no build command or output directory needed).
+2. Set `DATABASE_URL` and `JWT_SECRET` in Project → Settings → Environment Variables.
+3. Run the migration once from your machine: `DATABASE_URL=<prod url> npm run migrate`.
+
+## License
+
+[MIT](LICENSE)

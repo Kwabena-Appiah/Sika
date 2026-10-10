@@ -4,6 +4,7 @@
   "description": "Ghana VAT compliance API — auth, businesses, transactions, invoices (Act 1151)",
   "main": "src/server.js",
   "type": "commonjs",
+  "license": "MIT",
   "engines": {
     "node": ">=18"
   },

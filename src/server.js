@@ -27,6 +27,10 @@ app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 
 // Central error handler — never leak internals to the client.
 app.use((err, req, res, next) => {
+  // Malformed JSON body.
+  if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'Invalid JSON body' });
+  // Postgres rejected a value's format (e.g. non-UUID id, bad date) — client error, not a crash.
+  if (['22P02', '22007', '22008'].includes(err.code)) return res.status(400).json({ error: 'Invalid input format' });
   console.error(err);
   res.status(500).json({ error: 'Internal server error' });
 });

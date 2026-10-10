@@ -4,10 +4,11 @@ const { requireAuth, loadBusiness, requireWrite } = require('../middleware/auth'
 const { computeVat } = require('../lib/vat');
 
 const router = express.Router();
-router.use(requireAuth);
+// requireAuth is applied per route (not router.use) because this router is
+// mounted at "/" — a router-wide guard would turn every unknown URL into a 401.
 
 // GET /businesses/:businessId/invoices
-router.get('/businesses/:businessId/invoices', loadBusiness, async (req, res, next) => {
+router.get('/businesses/:businessId/invoices', requireAuth, loadBusiness, async (req, res, next) => {
   try {
     const { rows } = await db.query(
       `select id, invoice_no, customer_name, issue_date, created_at
@@ -19,7 +20,7 @@ router.get('/businesses/:businessId/invoices', loadBusiness, async (req, res, ne
 });
 
 // GET /invoices/:id  — full invoice with lines and computed totals
-router.get('/invoices/:id', async (req, res, next) => {
+router.get('/invoices/:id', requireAuth, async (req, res, next) => {
   try {
     const inv = await db.query(
       `select i.* from invoices i
@@ -38,7 +39,7 @@ router.get('/invoices/:id', async (req, res, next) => {
 });
 
 // POST /businesses/:businessId/invoices  — create invoice + lines atomically
-router.post('/businesses/:businessId/invoices', loadBusiness, requireWrite, async (req, res, next) => {
+router.post('/businesses/:businessId/invoices', requireAuth, loadBusiness, requireWrite, async (req, res, next) => {
   try {
     const { invoice_no, customer_name, issue_date, lines = [] } = req.body || {};
     if (!invoice_no || !invoice_no.trim()) return res.status(400).json({ error: 'invoice_no required' });

@@ -17,3 +17,7 @@ Thumbs.db
 # Build / archive artifacts
 files.zip
 mnt/
+
+# Postman local workspace
+postman/
+.postman/
